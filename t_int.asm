@@ -8,15 +8,8 @@ CTRL1		equ	$A10009
 DATA1		equ	$A10003
 Z80_BUSREQ	equ	$A11100
 Z80_RESET	equ	$A11200
-tTimer		equ	$FF0000
-freq_index	equ	$FF0002
-freq_index2	equ	$FF0003
-clearHInt	equ	$FF0004
-clearVInt	equ	$FF0005
-initialSP	equ	$FFFE00
+initialSP	equ	$1000000
 initialUSP	equ	initialSP-$100
-H_INT_RAM	equ	$FFFE00
-V_INT_RAM	equ	$FFFF00
 
 
 	DC.L	initialSP
@@ -57,77 +50,17 @@ init:
 	
 	move.w	#$8014,GFX_CTRL		; 0 0 0 HINT 0 1 M2 0
 	move.w	#$8164,GFX_CTRL		; 0 DISP VINT DMA V30 1 0 0
-;	move.w	#$8ADF,GFX_CTRL		; H_INT Register
+	move.w	#$8A00,GFX_CTRL		; H_INT Register
 
-	BSR	waitForVBlankSet
-	BSR	waitForVBlankCleared
-	MOVE.B	#1,(clearHInt)
-	MOVE.W	#-1,D6
+	MOVEA.L	#$FF0000,A2
+	MOVEA.L	#$FF0200,A3
 
 	movea.l	($C0),a0		; Get USP from Exception Vector #48
 	move.l	a0,usp
 	move.w  #$0300,sr		; Set user mode, enable interrupts > 3
 
-	MOVE.W	#$8ADF,GFX_CTRL
 
 	bra	main
-
-
-; *memcpy(void *dest, const void * src, size_t n)
-memcpy:
-	LINK	A6,#0
-	MOVE.L	(8,A6),A1	; A1 = *dest
-	MOVE.L	(12,A6),A0	; A0 = *src
-	MOVE.W	(16,A6),D0	; D0 = n
-	LSR.W	#1,D0
-@loop:
-	MOVE.W	(A0)+,(A1)+
-	DBRA	D0,@loop
-	UNLK	A6
-	RTS
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-waitForVBlankCleared:
-@waitForVBlank:
-	btst	#3,(GFX_CTRL+1)
-	bne.s	@waitForVBlank
-	rts
-
-
-
-waitForVBlankSet:
-@waitForVBlank:
-	btst	#3,(GFX_CTRL+1)
-	beq.s	@waitForVBlank
-	rts
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -136,9 +69,20 @@ waitForVBlankSet:
 
 ; =============================================================================
 main:
-	addq.w	#1,(tTimer)
-	;move.w	sr,d3
-
+	MOVE.W	$C00008,d2	; d2 = VC7 ... VC0 HC8 ... HC1
+	MOVEQ	#0,D3
+	MOVE.B	D2,D3
+	CMPI.W	#$50,D3
+	BMI.S	@sameLine
+	ADDA.L	#$10,A2
+	MOVE.W	#0,(A2)
+@sameLine:
+	MOVE.W	HV_COUNTER,D2	; d2 = VC7 ... VC0 HC8 ... HC1
+	LSR.W	#8,D2		; D2 = 00000000 VC7 ... VC0
+	CMP.B	D4,D2
+	BEQ.S	main
+	MOVE.B	D2,(A2)
+	MOVE.B	D2,D4
 
 	BRA	main
 
@@ -166,31 +110,13 @@ INT:
 @infLoop:
 	bra.s	@infLoop
 
+
+
 H_INT:
-	MOVE.B	(clearHInt),d0
-	TST.B	D0
-	BEQ.S	@noClear
-	MOVE.B	#0,(clearHInt)
-	BRA.S	@epilog
-@noClear:
-	addq.w	#1,d4
-	moveq	#0,d0
-	move.b	(freq_index2),d0
-	lea	@freq2(pc),a1
-	move.b	(a1,d0),d1
-	andi.w	#$FF,d1
-	addi.w	#$8A00,d1
-	move.w	d1,GFX_CTRL
-	addq.b	#1,d0
-	cmpi.b	#6,d0
-	blt	@skip2
-	moveq	#0,d0
-@skip2:
-	move.b	d0,(freq_index2)
-@epilog:
-	rte
-@freq2:
-	DC.B	$FF,$FF,$FF,$FF,$00,$72
+	MOVE.W	HV_COUNTER,D0
+	LSR.W	#8,D0
+	MOVE.B	D0,(1,A2)
+	RTE
 	even
 H_INT_END:
 
@@ -199,30 +125,8 @@ H_INT_END:
 
 
 V_INT:
-	MOVE.B	(clearVInt),d0
-	CMPI.B	#0,D0
-	BEQ.S	@noClear
-	MOVE.B	#0,(clearVInt)
-	BRA.S	@epilog
-@noClear:
-	addq.w	#1,d6
-	moveq	#0,d0
-	move.b	(freq_index),d0
-	lea	@freq,a1
-	move.b	(a1,d0),d1
-	andi.w	#$FF,d1
-	addi.w	#$8A00,d1
-	move.w	d1,GFX_CTRL
-	addq.w	#1,d0
-	cmpi.w	#5,d0
-	blt	@skip
-	moveq	#0,d0
-@skip:
-	move.b	d0,(freq_index)
-@epilog
+	MOVEA.L	#$FF0000,A2
 	rte
-@freq:
-	DC.B	223,215,161,107,54
 	even
 V_INT_END:
 
